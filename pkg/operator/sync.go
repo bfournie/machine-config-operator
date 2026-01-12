@@ -102,6 +102,8 @@ const (
 	mccUpdateBootImagesValidatingAdmissionPolicyBindingPath               = "manifests/machineconfigcontroller/update-bootimages-validatingadmissionpolicybinding.yaml"
 	mccMachineConfigPoolOSImageStreamValidatingAdmissionPolicyPath        = "manifests/machineconfigcontroller/machineconfigpool-osimagestream-reference-validatingadmissionpolicy.yaml"
 	mccMachineConfigPoolOSImageStreamValidatingAdmissionPolicyBindingPath = "manifests/machineconfigcontroller/machineconfigpool-osimagestream-reference-validatingadmissionpolicybinding.yaml"
+	mccIRIDeletionGuardValidatingAdmissionPolicyPath                      = "manifests/machineconfigcontroller/internalreleaseimage-deletion-guard-validatingadmissionpolicy.yaml"
+	mccIRIDeletionGuardValidatingAdmissionPolicyBindingPath               = "manifests/machineconfigcontroller/internalreleaseimage-deletion-guard-validatingadmissionpolicybinding.yaml"
 
 	// Machine OS Builder manifest paths
 	mobClusterRoleManifestPath                      = "manifests/machineosbuilder/clusterrole.yaml"
@@ -1177,6 +1179,11 @@ func (optr *Operator) syncMachineConfigController(config *renderConfig, _ *confi
 	if optr.fgHandler.Enabled(features.FeatureGateOSStreams) {
 		paths.validatingAdmissionPolicies = append(paths.validatingAdmissionPolicies, mccMachineConfigPoolOSImageStreamValidatingAdmissionPolicyPath)
 		paths.validatingAdmissionPolicyBindings = append(paths.validatingAdmissionPolicyBindings, mccMachineConfigPoolOSImageStreamValidatingAdmissionPolicyBindingPath)
+	}
+
+	if optr.fgHandler.Enabled(features.FeatureGateNoRegistryClusterInstall) {
+		paths.validatingAdmissionPolicies = append(paths.validatingAdmissionPolicies, mccIRIDeletionGuardValidatingAdmissionPolicyPath)
+		paths.validatingAdmissionPolicyBindings = append(paths.validatingAdmissionPolicyBindings, mccIRIDeletionGuardValidatingAdmissionPolicyBindingPath)
 	}
 
 	if err := optr.applyManifests(config, paths); err != nil {
