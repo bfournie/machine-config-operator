@@ -2,6 +2,7 @@ package internalreleaseimage
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfgv1alpha1 "github.com/openshift/api/machineconfiguration/v1alpha1"
+	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -56,8 +58,15 @@ func (ctrl *Controller) aggregateMCNIRIStatus(iri *mcfgv1alpha1.InternalReleaseI
 		return buildAPIIntUnavailableReleases(iri.Spec.Releases, ""), IRIStatusAPIIntNotAvailable, nil, nil, nil
 	}
 
+	// Get the CA certificate from ControllerConfig for TLS validation
+	cconfig, err := ctrl.ccLister.Get(ctrlcommon.ControllerConfigName)
+	if err != nil {
+		klog.Warningf("Failed to get ControllerConfig for CA cert: %v", err)
+		return buildAPIIntUnavailableReleases(iri.Spec.Releases, ""), IRIStatusAPIIntNotAvailable, nil, nil, nil
+	}
+
 	apiIntRegistryHost := fmt.Sprintf("api-int.%s:%d", clusterDomain, iriRegistryPort)
-	apiIntAvailable := pingRegistry(apiIntRegistryHost)
+	apiIntAvailable := pingRegistry(apiIntRegistryHost, cconfig.Spec.RootCAData)
 	klog.V(4).Infof("api-int registry available: %v (URL: %s)", apiIntAvailable, apiIntRegistryHost)
 
 	if !apiIntAvailable {
@@ -232,8 +241,8 @@ func transformToAPIIntURL(localhostURL, clusterDomain string) string {
 	return strings.Replace(localhostURL, "localhost", "api-int."+clusterDomain, 1)
 }
 
-// pingRegistry checks if the registry at the given URL is reachable
-func pingRegistry(registryURL string) bool {
+// pingRegistry checks if the registry at the given URL is reachable.
+func pingRegistry(registryURL string, caCert []byte) bool {
 	// Extract host:port from the URL
 	// registryURL is like "api-int.cluster.example.com:22625/openshift/release-images@sha256:..."
 	parts := strings.SplitN(registryURL, "/", 2)
@@ -242,12 +251,20 @@ func pingRegistry(registryURL string) bool {
 	}
 	baseURL := "https://" + parts[0] + "/v2/"
 
+	// Create a CA cert pool with the provided CA certificate
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		klog.Warningf("Failed to parse CA certificate for registry ping")
+		return false
+	}
+
 	client := &http.Client{
 		Timeout: iriRegistryPingTimeout,
 		Transport: &http.Transport{
-			// #nosec G402
-			// deepcode ignore TooPermissiveTrustManager: Internal IRI registry uses self-signed certificates
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{
+				RootCAs:    caCertPool,
+				MinVersion: tls.VersionTLS12,
+			},
 		},
 	}
 
