@@ -8,6 +8,7 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	features "github.com/openshift/api/features"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/api/machineconfiguration/v1alpha1"
 	apioperatorsv1alpha1 "github.com/openshift/api/operator/v1alpha1"
@@ -281,6 +282,27 @@ func (optr *Operator) buildMinimalControllerConfigForOSImageStream() (*mcfgv1.Co
 		return nil, fmt.Errorf("could not get trusted CA bundle: %w", err)
 	}
 	cc.Spec.AdditionalTrustBundle = trustBundle
+
+	// If NoRegistryClusterInstall feature is enabled, include the InternalReleaseImage registry CA
+	// certificate in RootCAData so that OSImageStream inspection can trust the mirrored registry.
+	if osimagestream.IsFeatureEnabled(optr.fgHandler) && optr.fgHandler.Enabled(features.FeatureGateNoRegistryClusterInstall) {
+		iriTLSSecret, err := optr.mcoSecretLister.Secrets(ctrlcommon.MCONamespace).Get(ctrlcommon.InternalReleaseImageTLSSecretName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				klog.Warningf("InternalReleaseImage TLS secret not found, OSImageStream inspection may fail for mirrored registries")
+			} else {
+				return nil, fmt.Errorf("could not get InternalReleaseImage TLS secret: %w", err)
+			}
+		} else {
+			// Extract the TLS certificate from the secret
+			if tlsCert, ok := iriTLSSecret.Data[corev1.TLSCertKey]; ok && len(tlsCert) > 0 {
+				cc.Spec.RootCAData = tlsCert
+				klog.V(4).Info("Added InternalReleaseImage TLS certificate to RootCAData for OSImageStream inspection")
+			} else {
+				klog.Warningf("InternalReleaseImage TLS secret exists but %s field is missing or empty", corev1.TLSCertKey)
+			}
+		}
+	}
 
 	return cc, nil
 }
