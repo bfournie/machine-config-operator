@@ -340,26 +340,15 @@ func (ctrl *Controller) addMachineConfigNode(obj interface{}) {
 	}
 }
 
-func (ctrl *Controller) updateMachineConfigNode(old, cur interface{}) {
-	oldMCN := old.(*mcfgv1.MachineConfigNode)
+func (ctrl *Controller) updateMachineConfigNode(_, cur interface{}) {
 	newMCN := cur.(*mcfgv1.MachineConfigNode)
 
 	if !ctrl.isControlPlaneNode(newMCN.Name) {
 		return
 	}
 
-	// Check if IRI releases changed
-	iriChanged := !equality.Semantic.DeepEqual(oldMCN.Status.InternalReleaseImage, newMCN.Status.InternalReleaseImage)
-
-	// Check if InternalReleaseImageDegraded condition changed
-	oldDegraded := meta.FindStatusCondition(oldMCN.Status.Conditions, string(mcfgv1.MachineConfigNodeInternalReleaseImageDegraded))
-	newDegraded := meta.FindStatusCondition(newMCN.Status.Conditions, string(mcfgv1.MachineConfigNodeInternalReleaseImageDegraded))
-	degradedChanged := !equality.Semantic.DeepEqual(oldDegraded, newDegraded)
-
-	if iriChanged || degradedChanged {
-		klog.V(4).Infof("MachineConfigNode %s IRI status or degraded condition updated", newMCN.Name)
-		ctrl.enqueueInternalReleaseImage()
-	}
+	klog.V(4).Infof("MachineConfigNode %s updated", newMCN.Name)
+	ctrl.enqueueInternalReleaseImage()
 }
 
 func (ctrl *Controller) deleteMachineConfigNode(obj interface{}) {
@@ -385,33 +374,15 @@ func (ctrl *Controller) deleteMachineConfigNode(obj interface{}) {
 	ctrl.enqueueInternalReleaseImage()
 }
 
-func (ctrl *Controller) updateNode(old, cur interface{}) {
-	oldNode := old.(*corev1.Node)
+func (ctrl *Controller) updateNode(_, cur interface{}) {
 	newNode := cur.(*corev1.Node)
 
 	if !ctrl.isControlPlaneNode(newNode.Name) {
 		return
 	}
 
-	// Check if the Ready condition changed
-	oldReady := getNodeReadyCondition(oldNode)
-	newReady := getNodeReadyCondition(newNode)
-
-	if oldReady != newReady {
-		klog.V(4).Infof("Node %s Ready condition changed from %v to %v", newNode.Name, oldReady, newReady)
-		ctrl.enqueueInternalReleaseImage()
-	}
-}
-
-// getNodeReadyCondition returns the status of the Ready condition for a node.
-// Returns corev1.ConditionUnknown if the condition is not found.
-func getNodeReadyCondition(node *corev1.Node) corev1.ConditionStatus {
-	for _, cond := range node.Status.Conditions {
-		if cond.Type == corev1.NodeReady {
-			return cond.Status
-		}
-	}
-	return corev1.ConditionUnknown
+	klog.V(4).Infof("Node %s updated", newNode.Name)
+	ctrl.enqueueInternalReleaseImage()
 }
 
 // isControlPlaneNode checks if a node is a control plane node by checking its labels.
